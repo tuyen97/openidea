@@ -31,6 +31,17 @@ pub async fn clipboard_set_file_list(app: AppHandle, paths: Vec<PathBuf>) -> Ide
     with_clipboard(app, move || Ok(ide_clipboard::set_files(&paths))).await
 }
 
+/// Replaces the clipboard with a PNG image: HTTP Client request/response evidence.
+#[tauri::command]
+#[specta::specta]
+pub async fn clipboard_set_image(app: AppHandle, png: Vec<u8>) -> IdeResult<()> {
+    with_clipboard(app, move || {
+        ide_clipboard::set_image_png(&png)
+            .map_err(|e| IdeError::internal(format!("Cannot set the clipboard image: {e}")))
+    })
+    .await
+}
+
 /// AppKit and WebKit share the general pasteboard, so a worker-side mutex cannot
 /// protect its type cache. Await the main thread without blocking a command thread.
 async fn with_clipboard<T: Send + 'static>(

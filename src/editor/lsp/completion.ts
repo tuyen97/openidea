@@ -750,6 +750,28 @@ const completionFooter = ViewPlugin.fromClass(
             ...scope.querySelectorAll<HTMLElement>(".cm-tooltip-autocomplete"),
           ];
           for (const t of tooltips) {
+            // Contributed options (language-data sources such as HTTP headers and
+            // templates) carry short docs as strings; show them above the footer
+            // so they do not depend on the side info panel's available space.
+            const completion = selectedCompletion(this.view.state);
+            const info = completion && typeof completion.info === "string" ? completion.info : null;
+            let doc = t.querySelector<HTMLElement>(":scope > .cm-lsp-completion-doc");
+            if (info) {
+              if (!doc) {
+                doc = document.createElement("div");
+                doc.className = "cm-lsp-completion-doc";
+              }
+              doc.textContent = info;
+              const footer = t.querySelector(":scope > .cm-lsp-completion-footer");
+              if (footer) {
+                if (doc.nextSibling !== footer) t.insertBefore(doc, footer);
+              } else if (doc.parentElement !== t) {
+                t.appendChild(doc);
+              }
+            } else if (doc) {
+              doc.remove();
+            }
+
             if (t.querySelector(":scope > .cm-lsp-completion-footer")) continue;
             const footer = document.createElement("div");
             footer.className = "cm-lsp-completion-footer";

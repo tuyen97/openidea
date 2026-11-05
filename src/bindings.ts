@@ -199,6 +199,8 @@ export const commands = {
 	 *  false when the clipboard stayed busy; the caller keeps working either way.
 	 */
 	clipboardSetFileList: (paths: string[]) => typedError<boolean, IdeError>(__TAURI_INVOKE("clipboard_set_file_list", { paths })),
+	/**  Replaces the clipboard with a PNG image: HTTP Client request/response evidence. */
+	clipboardSetImage: (png: number[]) => typedError<null, IdeError>(__TAURI_INVOKE("clipboard_set_image", { png })),
 	/**
 	 *  Every installed family, sorted, each flagged monospaced or not. Read on
 	 *  first use (off the command threads), cached, and re-queried on `refresh`.
@@ -4055,6 +4057,10 @@ export type HttpExchange = {
 	entry: HttpHistoryEntry,
 	request: PreparedRequest,
 	response: HttpResponse | null,
+	/**  `client.log(...)` output of the response handler. */
+	scriptLogs?: string[],
+	/**  Why the response handler failed, if it did. */
+	scriptError?: string | null,
 };
 
 export type HttpHistoryEntry = {

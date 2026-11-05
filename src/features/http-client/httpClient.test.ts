@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
-import { ensureSyntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, getIndentation, indentService, indentUnit } from "@codemirror/language";
+import { httpCompletionSource } from "./completion";
+import { handlerIndent } from "./editor";
 import { bodyKind, formatMs, formatSize, prettyBody, prettyMarkup } from "./format";
+import { httpDiagnostics } from "./lint";
 import { httpLanguage } from "./language";
 
 describe("response bodies", () => {
@@ -91,5 +95,84 @@ describe("http highlighting", () => {
     expect(has("string", '"a"')).toBe(true);
     expect(has("number", "1")).toBe(true);
     expect(has("meta", "# @name")).toBe(true);
+  });
+
+  it("tags JavaScript inside handlers", () => {
+    const t = tokens('GET https://x\n\n> {%\n  const token = response.body.token;\n  client.log("hi"); // note\n%}\n');
+    const has = (name: string, text: string) => t.some(([n, s]) => n.includes(name) && s === text);
+    expect(has("keyword", "const")).toBe(true);
+    expect(has("typeName", "response")).toBe(true);
+    expect(has("propertyName", "body")).toBe(true);
+    expect(has("propertyName", "token")).toBe(true);
+    expect(has("string", '"hi"')).toBe(true);
+    expect(has("comment", "// note")).toBe(true);
+  });
+
+  it("indents JavaScript inside handlers", () => {
+    const doc = "GET https://x\n\n> {%\nif (x) {\nclient.log(1);\n}\n%}";
+    const state = EditorState.create({
+      doc,
+      extensions: [indentUnit.of("  "), indentService.of(handlerIndent)],
+    });
+    expect(getIndentation(state, state.doc.line(5).from)).toBe(2);
+    expect(getIndentation(state, state.doc.line(6).from)).toBe(0);
+    expect(getIndentation(state, state.doc.line(7).from)).toBe(0);
+  });
+});
+
+describe("http suggestions", () => {
+  function complete(doc: string, pos = doc.length) {
+    return httpCompletionSource(new CompletionContext(EditorState.create({ doc }), pos, true));
+  }
+  const labels = (doc: string, pos = doc.length) => complete(doc, pos)?.options.map((o) => o.label) ?? [];
+
+  it("offers methods at the start of a request and headers after it", () => {
+    expect(labels("GE")).toContain("GET");
+    expect(labels("GET https://x\nAcc")).toContain("Accept");
+    expect(complete("GE")?.options.find((o) => o.label === "GET")?.info).toContain("Retrieve");
+  });
+
+  it("offers file variables and dynamic variables inside {{…}}", () => {
+    const found = labels("@host = example.com\nGET https://x/{{ho");
+    expect(found).toContain("host");
+    expect(found).toContain("$timestamp");
+  });
+
+  it("offers the handler API inside a script", () => {
+    const doc = "GET https://x\n\n> {%\n  client.\n%}";
+    const pos = doc.indexOf("client.") + "client.".length;
+    const found = labels(doc, pos);
+    const options = complete(doc, pos)?.options;
+    expect(found).toEqual(["global", "log"]);
+    expect(options?.find((o) => o.label === "global")?.info).toContain("shared");
+    expect(options?.find((o) => o.label === "log")?.detail).toBe("log(...values)");
+    expect(typeof options?.find((o) => o.label === "log")?.apply).toBe("function");
+
+    const globalDoc = "GET https://x\n\n> {%\n  client.global.\n%}";
+    const globalPos = globalDoc.indexOf("client.global.") + "client.global.".length;
+    const set = complete(globalDoc, globalPos)?.options.find((o) => o.label === "set");
+    expect(set?.detail).toBe("set(name, value)");
+    expect(typeof set?.apply).toBe("function");
+    expect(labels("GET https://x\n\n> {%\n  response.\n%}", "GET https://x\n\n> {%\n  response.".length)).toContain(
+      "status",
+    );
+  });
+});
+
+describe("http diagnostics", () => {
+  const diagnose = (doc: string) => httpDiagnostics(EditorState.create({ doc }).doc);
+
+  it("accepts a valid request, including a bare URL", () => {
+    expect(diagnose('GET https://x\nAccept: application/json\n\n{"a":1}\n> {% client.log(1) %}\n')).toEqual([]);
+    expect(diagnose("https://x\nAccept: application/json\n")).toEqual([]);
+  });
+
+  it("reports unknown methods and malformed headers", () => {
+    expect(diagnose("FOO /x\n").some((d) => d.message.includes("Unknown HTTP method"))).toBe(true);
+    expect(diagnose("GET https://x\nnot-a-header\n").some((d) => d.message.includes("header"))).toBe(true);
+  });
+
+  it("reports JavaScript syntax errors in handlers", () => {
+    expect(diagnose("GET https://x\n\n> {%\n  client.log(\n%}\n").some((d) => d.source === "JavaScript")).toBe(true);
   });
 });

@@ -1,0 +1,157 @@
+/** Shared vocabulary for `.http` highlighting, linting and completion. */
+
+export const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT"];
+
+export const COMMON_HEADERS = [
+  "Accept",
+  "Accept-Encoding",
+  "Accept-Language",
+  "Authorization",
+  "Cache-Control",
+  "Connection",
+  "Content-Disposition",
+  "Content-Length",
+  "Content-Type",
+  "Cookie",
+  "Host",
+  "If-Match",
+  "If-None-Match",
+  "Origin",
+  "Pragma",
+  "Referer",
+  "User-Agent",
+  "X-Request-Id",
+  "X-Requested-With",
+];
+
+export const METHOD_DOCS: Record<string, string> = {
+  GET: "Retrieve a resource. The response body is read without changing server state.",
+  POST: "Create a resource or submit data. The request body is sent to the server.",
+  PUT: "Replace a resource with the request body.",
+  PATCH: "Apply a partial update to a resource.",
+  DELETE: "Remove a resource.",
+  HEAD: "Like GET, but the response has no body; useful for headers and status.",
+  OPTIONS: "Ask which methods and headers the resource supports.",
+  TRACE: "Echo the request back, for diagnostics.",
+  CONNECT: "Open a tunnel to the host, usually through a proxy.",
+};
+
+export const HEADER_DOCS: Record<string, string> = {
+  Accept: "Media types the client can handle, e.g. application/json.",
+  "Accept-Encoding": "Compression algorithms the client accepts.",
+  "Accept-Language": "Preferred response languages.",
+  Authorization: "Credentials, e.g. Bearer <token> or Basic <base64>.",
+  "Cache-Control": "Caching directives for the request or response.",
+  Connection: "Connection options such as keep-alive or close.",
+  "Content-Disposition": "How a response body should be presented or saved.",
+  "Content-Length": "Body size in bytes.",
+  "Content-Type": "Media type of the request body, e.g. application/json.",
+  Cookie: "Cookies sent with the request.",
+  Host: "Target host and port; needed for a relative URL.",
+  "If-Match": "Run the request only if the resource matches this ETag.",
+  "If-None-Match": "Run the request only if the resource does not match this ETag.",
+  Origin: "Origin of a cross-site request.",
+  Pragma: "Legacy cache directive, usually no-cache.",
+  Referer: "Page that linked to the requested resource.",
+  "User-Agent": "Client name and version.",
+  "X-Request-Id": "Correlation id for tracing.",
+  "X-Requested-With": "Marks an XMLHttpRequest, often XMLHttpRequest.",
+};
+
+/** Variables the backend resolves without an environment file. */
+export const DYNAMIC_VARIABLES = [
+  "$uuid",
+  "$random.uuid",
+  "$timestamp",
+  "$isoTimestamp",
+  "$randomInt",
+  "$random.integer",
+  "$random.integer()",
+];
+
+export const JS_KEYWORDS = [
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "let",
+  "new",
+  "null",
+  "of",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "undefined",
+  "var",
+  "void",
+  "while",
+];
+
+/** Members offered after `client`, `request` and `response`. */
+export const SCRIPT_MEMBERS: Record<string, string[]> = {
+  client: ["global", "log"],
+  "client.global": ["set", "get", "clear", "clearAll", "isEmpty"],
+  request: ["method", "url", "headers", "body", "variables"],
+  "request.variables": ["set", "get"],
+  response: ["status", "statusText", "version", "body", "headers", "contentType", "size", "ttfbMs", "totalMs"],
+};
+
+/** Documentation shown beside a selected script completion. */
+export const MEMBER_DOCS: Record<string, string> = {
+  "client.global": "Values shared by every request in this project session.",
+  "client.log": "Write values to the HTTP Client tool window's Script tab.",
+  "client.global.set": "Store a value; later requests can use it as {{name}}.",
+  "client.global.get": "Read a value stored with client.global.set().",
+  "client.global.clear": "Remove one stored global.",
+  "client.global.clearAll": "Remove every stored global.",
+  "client.global.isEmpty": "Whether no global is stored.",
+  "request.method": "HTTP method of the request being sent.",
+  "request.url": "Final URL after variable substitution.",
+  "request.headers": "Request headers as name → value.",
+  "request.body": "Request body text, or null.",
+  "request.variables": "Variables used to build this request.",
+  "request.variables.set": "Set a variable for the rest of this request.",
+  "request.variables.get": "Read a variable visible to this request.",
+  "response.status": "HTTP status code, e.g. 200.",
+  "response.statusText": "Reason phrase, e.g. OK.",
+  "response.version": "HTTP version, e.g. HTTP/1.1.",
+  "response.body": "Response body; JSON is parsed into an object.",
+  "response.headers": "Response headers as name → value.",
+  "response.contentType": "Content-Type header, or null.",
+  "response.size": "Body size in bytes.",
+  "response.ttfbMs": "Time until response headers arrived.",
+  "response.totalMs": "Time until the body was fully read.",
+};
+
+export const VARIABLE_DOCS: Record<string, string> = {
+  $uuid: "A random UUID for this request.",
+  "$random.uuid": "A random UUID for this request.",
+  $timestamp: "Current Unix timestamp in seconds.",
+  $isoTimestamp: "Current time as an ISO-8601 UTC string.",
+  $randomInt: "A random integer from 0 to 999.",
+  "$random.integer": "A random integer from 0 to 999.",
+  "$random.integer()": "A random integer from 0 to 999.",
+};

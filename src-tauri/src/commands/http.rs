@@ -45,6 +45,7 @@ pub async fn http_execute(
         file: path.as_deref(),
         root: Some(&project.root),
         env: env.as_deref(),
+        globals: Some(project.http_globals.clone()),
     };
     let result = ide_http::run(input, &cancel).await;
     state.end_request(request);

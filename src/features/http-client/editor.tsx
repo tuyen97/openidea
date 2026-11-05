@@ -4,6 +4,8 @@
  * the environment selector, Run All and Stop.
  */
 import { RangeSet, StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { indentService, type IndentContext } from "@codemirror/language";
+import { lintGutter } from "@codemirror/lint";
 import { EditorView, GutterMarker, ViewPlugin, gutter, showPanel, type Panel, type ViewUpdate } from "@codemirror/view";
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -21,6 +23,7 @@ import {
   setEnvironment,
   useHttpClient,
 } from "./store";
+import { httpLinter } from "./lint";
 import styles from "./HttpClient.module.css";
 
 export const HTTP_LANGUAGE = "http";
@@ -142,6 +145,34 @@ function toolbarPanel(path: string | null) {
   };
 }
 
+/** Whether `pos` is between `{%` and `%}`. */
+function inHandler(state: EditorState, pos: number): boolean {
+  const before = state.sliceDoc(0, pos);
+  return before.lastIndexOf("{%") > before.lastIndexOf("%}");
+}
+
+/** JavaScript indentation inside handlers: braces, brackets and the `%}` close. */
+export function handlerIndent(context: IndentContext, pos: number): number | null {
+  if (!inHandler(context.state, pos)) return null;
+  const line = context.state.doc.lineAt(pos);
+  const text = line.text.trimStart();
+  if (text.startsWith("%}")) return 0;
+
+  let previous = line.number - 1;
+  while (previous >= 1 && !context.state.doc.line(previous).text.trim()) previous--;
+  if (previous < 1) return context.unit;
+
+  const prev = context.state.doc.line(previous);
+  const prevTrimmed = prev.text.trimStart();
+  const base = prev.text.length - prevTrimmed.length;
+  if (prevTrimmed.endsWith("{%")) return base + context.unit;
+  const opens =
+    prevTrimmed.endsWith("{") || prevTrimmed.endsWith("(") || prevTrimmed.endsWith("[") || prevTrimmed.endsWith("=>");
+  let indent = base + (opens ? context.unit : 0);
+  if (/^[})\]]/.test(text)) indent = Math.max(0, indent - context.unit);
+  return indent;
+}
+
 const DEBOUNCE = 300;
 
 export function httpEditorExtension(ctx: EditorDocContext): Extension {
@@ -169,7 +200,10 @@ export function httpEditorExtension(ctx: EditorDocContext): Extension {
   );
   return [
     requestsField,
+    indentService.of(handlerIndent),
     detector,
+    httpLinter,
+    lintGutter(),
     showPanel.of(toolbarPanel(path)),
     gutter({
       class: `${styles.runGutter} cm-openidea-gutter-http`,

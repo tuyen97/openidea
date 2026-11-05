@@ -36,6 +36,12 @@ pub struct HttpExchange {
     pub entry: HistoryEntry,
     pub request: PreparedRequest,
     pub response: Option<HttpResponse>,
+    /// `client.log(...)` output of the response handler.
+    #[serde(default)]
+    pub script_logs: Vec<String>,
+    /// Why the response handler failed, if it did.
+    #[serde(default)]
+    pub script_error: Option<String>,
 }
 
 pub struct History {
@@ -133,6 +139,8 @@ mod tests {
                 body: None,
             },
             response: None,
+            script_logs: Vec::new(),
+            script_error: None,
         }
     }
 

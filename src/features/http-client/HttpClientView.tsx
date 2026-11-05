@@ -6,7 +6,10 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { HttpExchange, HttpHistoryEntry } from "@/platform/ipc";
-import { EmptyState, IconButton, SplitGroup, SplitHandle, SplitPanel, Spinner, Tabs, T } from "@/ui";
+import { EmptyState, IconButton, SplitGroup, SplitHandle, SplitPanel, Spinner, Tabs, T, copyText } from "@/ui";
+import { notifications } from "@/workbench/contributions";
+import { curlCommand } from "./curl";
+import { copyEvidence } from "./evidence";
 import { bodyKind, formatMs, formatSize, prettyBody } from "./format";
 import { cancelRunning, clearHistory, refreshHistory, selectEntry, useHttpClient } from "./store";
 import styles from "./HttpClient.module.css";
@@ -39,12 +42,14 @@ function EntryRow({ entry, selected }: { entry: HttpHistoryEntry; selected: bool
   );
 }
 
-type Tab = "body" | "headers" | "request";
+type Tab = "body" | "headers" | "request" | "curl" | "script";
 
 function ExchangeView({ ex }: { ex: HttpExchange }) {
   const [tab, setTab] = useState<Tab>("body");
   const [raw, setRaw] = useState(false);
   const r = ex.response;
+  const hasScript = !!ex.scriptError || (ex.scriptLogs?.length ?? 0) > 0;
+  const curl = useMemo(() => curlCommand(ex.request), [ex.request]);
   const kind = r?.body != null ? bodyKind(r.contentType, r.body) : "text";
   const body = useMemo(() => (r?.body == null ? null : raw ? r.body : prettyBody(kind, r.body)), [r, raw, kind]);
   return (
@@ -76,6 +81,8 @@ function ExchangeView({ ex }: { ex: HttpExchange }) {
           { id: "body", label: "Response" },
           { id: "headers", label: r ? tx`Headers (${r.headers.length})` : "Headers" },
           { id: "request", label: "Request" },
+          { id: "curl", label: "cURL" },
+          ...(hasScript ? [{ id: "script", label: "Script" }] : []),
         ]}
         trailing={
           tab === "body" && kind !== "text" ? (
@@ -84,6 +91,16 @@ function ExchangeView({ ex }: { ex: HttpExchange }) {
               title={raw ? "Show Formatted" : "Show Raw"}
               pressed={raw}
               onClick={() => setRaw((v) => !v)}
+            />
+          ) : tab === "curl" ? (
+            <IconButton
+              icon="copy"
+              title={tx("Copy as cURL")}
+              onClick={() => {
+                void copyText(curl).then(() =>
+                  notifications().notify({ level: "info", title: tx("Copied"), key: "http-curl" }),
+                );
+              }}
             />
           ) : undefined
         }
@@ -111,6 +128,25 @@ function ExchangeView({ ex }: { ex: HttpExchange }) {
             {ex.request.headers.map(([k, v]) => `${k}: ${v}\n`).join("")}
             {ex.request.body != null ? `\n${ex.request.body}` : ""}
           </pre>
+        )}
+        {tab === "curl" && (
+          <pre className={styles.pre} aria-label={tx("cURL command")}>
+            {curl}
+          </pre>
+        )}
+        {tab === "script" && (
+          <div className={styles.tabBody}>
+            {ex.scriptError && (
+              <pre className={styles.pre} aria-label={tx("Error")}>
+                {ex.scriptError}
+              </pre>
+            )}
+            {ex.scriptLogs?.length ? (
+              <pre className={styles.pre} aria-label={tx("Script")}>
+                {ex.scriptLogs.join("\n")}
+              </pre>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
@@ -176,8 +212,44 @@ export function HttpClientView() {
 
 export function HttpClientHeaderActions() {
   const running = useHttpClient((s) => !!s.running);
+  const exchange = useHttpClient((s) => (s.selected ? s.exchanges[s.selected] : undefined));
+  const evidence = () => {
+    if (!exchange) return;
+    void copyEvidence(exchange)
+      .then((result) => {
+        if (result.kind === "copied") {
+          notifications().notify({ level: "info", title: tx("Copied"), key: "http-evidence" });
+        } else if (result.kind === "saved") {
+          notifications().notify({
+            level: "info",
+            title: tx("Evidence saved"),
+            body: result.path,
+            key: "http-evidence",
+          });
+        } else if (result.kind === "failed") {
+          notifications().notify({
+            level: "error",
+            title: tx("Cannot copy the evidence image"),
+            key: "http-evidence",
+          });
+        }
+      })
+      .catch(() => {
+        notifications().notify({
+          level: "error",
+          title: tx("Cannot copy the evidence image"),
+          key: "http-evidence",
+        });
+      });
+  };
   return (
     <>
+      <IconButton
+        icon="file-image"
+        title={tx("Copy request and response as image")}
+        disabled={!exchange}
+        onClick={evidence}
+      />
       <IconButton icon="stop" title="Stop Request" disabled={!running} onClick={cancelRunning} />
       <IconButton icon="refresh" title="Reload History" onClick={() => void refreshHistory()} />
       <IconButton icon="trash" title="Clear History" onClick={() => void clearHistory()} />

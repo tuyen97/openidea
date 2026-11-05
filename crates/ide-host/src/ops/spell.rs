@@ -51,7 +51,9 @@ pub async fn spell_check(
         if snap.large {
             return Ok(Vec::new());
         }
-        let regions = if PROSE.contains(&snap.language.as_str()) {
+        let regions = if snap.language.as_str() == "http" {
+            ide_spell::http_regions(&snap.text)
+        } else if PROSE.contains(&snap.language.as_str()) {
             ide_spell::prose_regions(&snap.text)
         } else {
             let Some(found) = syntax.spelling_regions(&snap.language, &snap.text) else { return Ok(Vec::new()) };

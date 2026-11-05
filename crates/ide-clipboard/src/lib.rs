@@ -44,6 +44,18 @@ pub fn set_files(paths: &[PathBuf]) -> bool {
     imp::set_files(paths)
 }
 
+/// Replaces the clipboard with a PNG image (HTTP Client evidence).
+pub fn set_image_png(png: &[u8]) -> std::io::Result<()> {
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| std::io::Error::other(format!("clipboard: {e}")))?;
+    clipboard
+        .set_image(arboard::ImageData { width: width as usize, height: height as usize, bytes: rgba.into_raw().into() })
+        .map_err(|e| std::io::Error::other(format!("clipboard image: {e}")))
+}
+
 /// `DROPFILES` for `paths`, in the wide form so names outside the ANSI code
 /// page survive. Empty paths are skipped.
 pub fn encode(paths: &[PathBuf]) -> Vec<u8> {

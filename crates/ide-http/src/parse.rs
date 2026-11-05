@@ -11,8 +11,10 @@
 //! < ./payload.json             # body include
 //! ```
 //!
-//! Response handlers (`> {% … %}`, `> file.js`), response redirects (`>> file`)
-//! and references to previous responses (`<> file`) are recognised and skipped.
+//! Request scripts (`< {% … %}`, `< file.js`) and response handlers
+//! (`> {% … %}`, `> file.js`) are parsed into [`ScriptBlock`]s; response
+//! redirects (`>> file`) and references to previous responses (`<> file`) are
+//! recognised and skipped.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -43,12 +45,31 @@ pub enum BodyPart {
     File(String),
 }
 
+/// Where a script's code comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptSource {
+    /// Inline `{% … %}` text, delimiters removed.
+    Inline(String),
+    /// A `./handler.js` path, as written (relative to the request file).
+    File(String),
+}
+
+/// A pre-request script (`<`) or response handler (`>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptBlock {
+    pub source: ScriptSource,
+    /// 0-based line of the `<` / `>` marker.
+    pub line: u32,
+}
+
 /// A request with every part still unsubstituted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawRequest {
     pub block: HttpRequestBlock,
     pub headers: Vec<(String, String)>,
     pub body: Vec<BodyPart>,
+    pub pre_script: Option<ScriptBlock>,
+    pub response_script: Option<ScriptBlock>,
 }
 
 /// Everything parsed from one file.
@@ -190,6 +211,11 @@ pub fn parse(text: &str) -> HttpFile {
                 i += 1;
                 break;
             }
+            // A script or body include directly after the headers (no blank
+            // line) still belongs to the body section, not to the headers.
+            if l.trim_start().starts_with(['<', '>']) {
+                break;
+            }
             if !is_comment(l)
                 && let Some(h) = header(l)
             {
@@ -197,7 +223,8 @@ pub fn parse(text: &str) -> HttpFile {
             }
             i += 1;
         }
-        let body = body_parts(&lines[i.min(lines.len())..]);
+        let body_start = i.min(lines.len());
+        let (body, pre_script, response_script) = body_parts(&lines[body_start..], start + body_start as u32);
         // Trailing blank lines are not part of the block's visible extent.
         let mut last = lines.len();
         while last > req_idx + 1 && lines[last - 1].trim().is_empty() {
@@ -216,27 +243,90 @@ pub fn parse(text: &str) -> HttpFile {
             },
             headers,
             body,
+            pre_script,
+            response_script,
         });
     }
     file
 }
 
-fn body_parts(lines: &[&str]) -> Vec<BodyPart> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HandlerKind {
+    PreRequest,
+    Response,
+}
+
+impl HandlerKind {
+    fn set(self, pre: &mut Option<ScriptBlock>, response: &mut Option<ScriptBlock>, block: ScriptBlock) {
+        match self {
+            HandlerKind::PreRequest => *pre = Some(block),
+            HandlerKind::Response => *response = Some(block),
+        }
+    }
+}
+
+/// `{% … %}` on a `<` or `>` line: the kind and the text after `{%`.
+fn inline_handler(t: &str) -> Option<(HandlerKind, &str)> {
+    for (prefix, kind) in [
+        ("< {%", HandlerKind::PreRequest),
+        ("<{%", HandlerKind::PreRequest),
+        ("> {%", HandlerKind::Response),
+        (">{%", HandlerKind::Response),
+    ] {
+        if let Some(rest) = t.strip_prefix(prefix) {
+            return Some((kind, rest));
+        }
+    }
+    None
+}
+
+/// A script file line: `< ./pre.js` / `> ./handler.js`.
+fn script_file(t: &str) -> Option<(HandlerKind, String)> {
+    // `>> file` and `<> file` are not scripts.
+    if t.starts_with("<>") || t.starts_with(">>") {
+        return None;
+    }
+    let (kind, rest) = if let Some(rest) = t.strip_prefix("< ") {
+        (HandlerKind::PreRequest, rest)
+    } else if let Some(rest) = t.strip_prefix("> ") {
+        (HandlerKind::Response, rest)
+    } else {
+        return None;
+    };
+    let path = rest.trim();
+    let lower = path.to_ascii_lowercase();
+    let is_js = [".js", ".mjs", ".cjs"].iter().any(|ext| lower.ends_with(ext));
+    // `< ./payload.json` keeps its meaning: a body include.
+    is_js.then(|| (kind, path.to_owned()))
+}
+
+/// Body parts plus the request's pre-request script and response handler.
+fn body_parts(lines: &[&str], base_line: u32) -> (Vec<BodyPart>, Option<ScriptBlock>, Option<ScriptBlock>) {
     let mut out = Vec::new();
-    let mut in_handler = false;
-    for &l in lines {
+    let mut pre = None;
+    let mut response = None;
+
+    let mut i = 0;
+    while i < lines.len() {
+        let l = lines[i];
         let t = l.trim_start();
-        if in_handler {
-            if t.trim_end().ends_with("%}") {
-                in_handler = false;
-            }
+
+        if let Some((kind, rest)) = inline_handler(t) {
+            let line = base_line + i as u32;
+            let (source, next) = inline_source(rest, lines, i);
+            kind.set(&mut pre, &mut response, ScriptBlock { source: ScriptSource::Inline(source), line });
+            i = next;
             continue;
         }
-        if t.starts_with("> {%") {
-            in_handler = !t.trim_end().ends_with("%}");
+        if let Some((kind, path)) = script_file(t) {
+            let line = base_line + i as u32;
+            kind.set(&mut pre, &mut response, ScriptBlock { source: ScriptSource::File(path), line });
+            i += 1;
             continue;
         }
+        // `>> file`, `<> file` and a non-JS `> file` are not body lines.
         if t.starts_with("<>") || t.starts_with(">>") || t.starts_with("> ") {
+            i += 1;
             continue;
         }
         if let Some(path) = t.strip_prefix("< ") {
@@ -244,14 +334,45 @@ fn body_parts(lines: &[&str]) -> Vec<BodyPart> {
         } else {
             out.push(BodyPart::Text(l.to_owned()));
         }
+        i += 1;
     }
+
     while matches!(out.last(), Some(BodyPart::Text(t)) if t.trim().is_empty()) {
         out.pop();
     }
     while matches!(out.first(), Some(BodyPart::Text(t)) if t.trim().is_empty()) {
         out.remove(0);
     }
-    out
+    (out, pre, response)
+}
+
+/// Inline handler text from `rest` (just after `{%`) to the closing `%}`.
+/// Returns the source and the index of the first line after the handler.
+fn inline_source(rest: &str, lines: &[&str], i: usize) -> (String, usize) {
+    if let Some(end) = rest.trim_end().strip_suffix("%}") {
+        return (end.trim().to_owned(), i + 1);
+    }
+    let mut source = String::from(rest.trim_start());
+    let mut j = i + 1;
+    while j < lines.len() {
+        let line = lines[j];
+        let t = line.trim_start();
+        if let Some(end) = t.trim_end().strip_suffix("%}") {
+            let tail = end.trim_end();
+            if !tail.is_empty() {
+                if !source.is_empty() {
+                    source.push('\n');
+                }
+                source.push_str(tail);
+            }
+            j += 1;
+            break;
+        }
+        source.push('\n');
+        source.push_str(line);
+        j += 1;
+    }
+    (source.trim().to_owned(), j)
 }
 
 /// The blocks only (gutter, Run All).
@@ -317,6 +438,11 @@ https://example.com/health
                 BodyPart::File("./extra.json".into()),
             ]
         );
+        assert_eq!(
+            b.response_script,
+            Some(ScriptBlock { source: ScriptSource::Inline("client.log(1)".into()), line: 20 })
+        );
+        assert!(b.pre_script.is_none());
 
         let c = &f.requests[2];
         assert_eq!(c.block.method, "GET");
@@ -339,5 +465,68 @@ https://example.com/health
     fn plain_text_is_not_a_request() {
         assert!(parse("hello world\n").requests.is_empty());
         assert!(parse("GET\n").requests.is_empty());
+    }
+
+    #[test]
+    fn parses_inline_pre_request_and_response_scripts() {
+        let f = parse(
+            "POST https://example.com/items\n\
+             Content-Type: application/json\n\
+             \n\
+             {\"id\": 1}\n\
+             < {%\n\
+               request.variables.set(\"id\", 2);\n\
+             %}\n\
+             > {% client.log(response.status) %}\n",
+        );
+        let r = &f.requests[0];
+        assert_eq!(r.body, vec![BodyPart::Text("{\"id\": 1}".into())]);
+        assert_eq!(
+            r.pre_script,
+            Some(ScriptBlock { source: ScriptSource::Inline("request.variables.set(\"id\", 2);".into()), line: 4 })
+        );
+        assert_eq!(
+            r.response_script,
+            Some(ScriptBlock { source: ScriptSource::Inline("client.log(response.status)".into()), line: 7 })
+        );
+    }
+
+    #[test]
+    fn script_files_are_not_body_includes() {
+        let f = parse(
+            "GET https://example.com/\n\
+             < ./pre.js\n\
+             > ./handler.mjs\n\
+             < ./payload.json\n",
+        );
+        let r = &f.requests[0];
+        assert_eq!(r.pre_script, Some(ScriptBlock { source: ScriptSource::File("./pre.js".into()), line: 1 }));
+        assert_eq!(
+            r.response_script,
+            Some(ScriptBlock { source: ScriptSource::File("./handler.mjs".into()), line: 2 })
+        );
+        // The JSON include keeps its body meaning.
+        assert_eq!(r.body, vec![BodyPart::File("./payload.json".into())]);
+    }
+
+    #[test]
+    fn scripts_directly_after_headers_are_not_lost() {
+        let f = parse("GET https://example.com/\nAccept: */*\n> {% client.log(1) %}\n");
+        let r = &f.requests[0];
+        assert_eq!(r.headers, vec![("Accept".into(), "*/*".into())]);
+        assert_eq!(
+            r.response_script,
+            Some(ScriptBlock { source: ScriptSource::Inline("client.log(1)".into()), line: 2 })
+        );
+        assert!(r.body.is_empty());
+    }
+
+    #[test]
+    fn response_redirects_are_still_skipped() {
+        let f = parse("GET https://example.com/\n\n>> ./response.json\n<> ./previous.json\n");
+        let r = &f.requests[0];
+        assert!(r.body.is_empty());
+        assert!(r.pre_script.is_none());
+        assert!(r.response_script.is_none());
     }
 }

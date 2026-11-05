@@ -418,6 +418,124 @@ fn capitalize(s: &str) -> String {
     chars.next().into_iter().flat_map(char::to_uppercase).chain(chars).collect()
 }
 
+/// Regions of an IntelliJ-style `.http` document: comments, quoted strings and
+/// the comments/strings of `{% … %}` JavaScript handlers.
+pub fn http_regions(text: &str) -> Vec<Region> {
+    let mut out = Vec::new();
+    let mut cursor = 0;
+    for (start, end) in handler_ranges(text) {
+        normal_regions(&text[cursor..start], cursor, &mut out);
+        js_regions(&text[start..end], start, &mut out);
+        cursor = end;
+    }
+    normal_regions(&text[cursor..], cursor, &mut out);
+    out
+}
+
+/// Content ranges of `{% … %}` handlers, delimiters excluded.
+fn handler_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut tail = 0;
+    while let Some(open) = text[tail..].find("{%") {
+        let start = tail + open + 2;
+        let Some(close) = text[start..].find("%}") else {
+            out.push((start, text.len()));
+            break;
+        };
+        let end = start + close;
+        out.push((start, end));
+        tail = end + 2;
+    }
+    out
+}
+
+/// Comments and single-line quoted strings outside handlers.
+fn normal_regions(text: &str, base: usize, out: &mut Vec<Region>) {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let start = base + offset;
+        offset += line.len();
+        let end = start + line.trim_end_matches(['\r', '\n']).len();
+        let body = &text[offset - line.len()..offset];
+        let trimmed = body.trim_start();
+        let indent = body.len() - trimmed.len();
+        if trimmed.starts_with("###") || trimmed.starts_with("# @") || trimmed.starts_with("// @") {
+            continue;
+        }
+        if trimmed.starts_with('#') || trimmed.starts_with("//") {
+            let prefix = if trimmed.starts_with("//") { 2 } else { 1 };
+            let comment = start + indent + prefix;
+            if comment < end {
+                out.push(Region { start: comment, end, kind: RegionKind::Comment });
+            }
+            continue;
+        }
+        quoted_regions(body, start, out);
+    }
+}
+
+/// Single-line `"…"` / `'…'` strings.
+fn quoted_regions(line: &str, base: usize, out: &mut Vec<Region>) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let quote = bytes[i];
+        if quote != b'"' && quote != b'\'' {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        i += 1;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' {
+                i += 2;
+            } else if bytes[i] == quote {
+                i += 1;
+                break;
+            } else {
+                i += 1;
+            }
+        }
+        out.push(Region { start: base + start, end: base + i.min(bytes.len()), kind: RegionKind::String });
+    }
+}
+
+/// Comments and strings inside a JavaScript handler.
+fn js_regions(script: &str, base: usize, out: &mut Vec<Region>) {
+    let bytes = script.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
+                let end = script[i..].find('\n').map_or(bytes.len(), |n| i + n);
+                out.push(Region { start: base + i, end: base + end, kind: RegionKind::Comment });
+                i = end;
+            }
+            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                let end = script[i + 2..].find("*/").map_or(bytes.len(), |n| i + 2 + n + 2);
+                out.push(Region { start: base + i, end: base + end, kind: RegionKind::Comment });
+                i = end;
+            }
+            quote @ (b'"' | b'\'' | b'`') => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i += 2;
+                    } else if bytes[i] == quote {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+                out.push(Region { start: base + start, end: base + i.min(bytes.len()), kind: RegionKind::String });
+            }
+            _ => i += 1,
+        }
+    }
+}
+
 /// Regions of a plain-text / Markdown document: everything but fenced code
 /// blocks and inline code spans.
 pub fn prose_regions(text: &str) -> Vec<Region> {
@@ -740,5 +858,18 @@ mod tests {
     fn cancellation() {
         let s = Speller::default();
         assert!(s.check("x", &whole("x", RegionKind::Comment), &|| true).is_none());
+    }
+
+    #[test]
+    fn http_regions_cover_comments_strings_and_handlers() {
+        let text = "# a coment\n# @name ignored\nGET https://x\n\n{\"mesage\":\"helo\"}\n> {%\n  // a coment in js\n  client.log(\"helllo\");\n%}\n";
+        let regions = http_regions(text);
+        let spans: Vec<_> = regions.iter().map(|r| (&text[r.start..r.end], r.kind)).collect();
+        assert!(spans.contains(&(" a coment", RegionKind::Comment)), "{spans:?}");
+        assert!(spans.contains(&("\"mesage\"", RegionKind::String)), "{spans:?}");
+        assert!(spans.contains(&("\"helo\"", RegionKind::String)), "{spans:?}");
+        assert!(spans.contains(&("// a coment in js", RegionKind::Comment)), "{spans:?}");
+        assert!(spans.contains(&("\"helllo\"", RegionKind::String)), "{spans:?}");
+        assert!(!spans.iter().any(|(s, _)| s.contains("ignored")), "{spans:?}");
     }
 }

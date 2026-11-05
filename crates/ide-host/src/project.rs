@@ -50,6 +50,8 @@ pub struct Project {
     pub db: Arc<ide_db::DbManager>,
     /// HTTP Client responses (IDEA's `.idea/httpRequests`), in the app data dir.
     pub http_history: Arc<ide_http::History>,
+    /// `client.global` values of HTTP Client scripts this session.
+    pub http_globals: Arc<ide_http::Globals>,
     /// Coding agent tasks (Agents tool window).
     pub agents: Arc<ide_agent::AgentManager>,
     /// Native notebooks and owned kernels, scoped to this project incarnation.
@@ -453,7 +455,7 @@ impl Host {
         mark("git");
         tracing::info!("opened {} in window {window} in {} ms {laps:?}", root.display(), started.elapsed().as_millis());
 
-        let (db, http_history, agents) = self.project_services(&root, &project_key);
+        let (db, http_history, http_globals, agents) = self.project_services(&root, &project_key);
         let notebooks = crate::notebook::NotebookService::new(
             self.local_data_dir.join("notebook-runtime").join(uuid::Uuid::new_v4().to_string()),
             sink.clone(),
@@ -481,6 +483,7 @@ impl Host {
             )),
             db,
             http_history,
+            http_globals,
             agents,
             notebooks,
             kotlin_bridge: Some(kotlin_bridge),
@@ -520,12 +523,12 @@ impl Host {
         Ok(project)
     }
 
-    /// Database connections, HTTP Client history and coding agents of the project at `root`.
+    /// Database connections, HTTP Client history/globals and coding agents of the project at `root`.
     pub(crate) fn project_services(
         &self,
         root: &Path,
         project_key: &str,
-    ) -> (Arc<ide_db::DbManager>, Arc<ide_http::History>, Arc<ide_agent::AgentManager>) {
+    ) -> (Arc<ide_db::DbManager>, Arc<ide_http::History>, Arc<ide_http::Globals>, Arc<ide_agent::AgentManager>) {
         let db = Arc::new(
             ide_db::DbManager::new(
                 root.to_path_buf(),
@@ -536,6 +539,7 @@ impl Host {
             .with_global_sources(self.data_dir.clone()),
         );
         let http_history = Arc::new(ide_http::History::new(self.data_dir.join("http-history").join(project_key)));
+        let http_globals = Arc::new(ide_http::Globals::default());
         let agents = Arc::new(ide_agent::AgentManager::new(
             ide_agent::AgentPaths {
                 project_root: root.to_path_buf(),
@@ -554,7 +558,7 @@ impl Host {
             },
             self.runtime.clone(),
         ));
-        (db, http_history, agents)
+        (db, http_history, http_globals, agents)
     }
 }
 
@@ -593,7 +597,7 @@ impl Host {
         documents.add_observer(Arc::new(HistoryObserver(history.clone())));
         let watcher = light_watcher(&dir, &sink, &documents, &history)?;
         let project_key = project_key(&dir);
-        let (db, http_history, agents) = self.project_services(&dir, &project_key);
+        let (db, http_history, http_globals, agents) = self.project_services(&dir, &project_key);
         let notebooks = crate::notebook::NotebookService::new(
             self.local_data_dir.join("notebook-runtime").join(uuid::Uuid::new_v4().to_string()),
             sink.clone(),
@@ -619,6 +623,7 @@ impl Host {
             )),
             db,
             http_history,
+            http_globals,
             agents,
             notebooks,
             kotlin_bridge: None,

@@ -6202,5 +6202,16 @@
   "First Page": "第一页",
   "Count rows": "统计行数",
   "Last Page": "最后一页",
-  "{first}-{last} of {total}": "{first}-{last}，共 {total}"
+  "{first}-{last} of {total}": "{first}-{last}，共 {total}",
+  "Expected a method and URL, or a comment": "应为方法和 URL，或注释",
+  "Expected a header name and value": "应为标头名称和值",
+  "JavaScript syntax error": "JavaScript 语法错误",
+  "Unknown HTTP method '{request}'": "未知的 HTTP 方法“{request}”",
+  "cURL": "cURL",
+  "cURL command": "cURL 命令",
+  "Copy as cURL": "复制为 cURL",
+  "Copy request and response as image": "将请求和响应复制为图片",
+  "Evidence saved": "证据已保存",
+  "Cannot copy the evidence image": "无法复制证据图片",
+  "No response": "无响应"
 }

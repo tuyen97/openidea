@@ -160,6 +160,17 @@ export const lspTheme = EditorView.theme({
     gap: "12px",
     justifyContent: "space-between",
   },
+  ".cm-lsp-completion-doc": {
+    padding: "7px 12px",
+    borderTop: "1px solid var(--border-popup)",
+    color: "var(--fg-secondary)",
+    fontFamily: "var(--font-ui)",
+    fontSize: "var(--fs-small)",
+    lineHeight: "18px",
+    whiteSpace: "normal",
+    maxHeight: "120px",
+    overflow: "auto",
+  },
   ".cm-lsp-completion-sort": {
     padding: "0",
     border: "none",
@@ -177,7 +188,6 @@ export const lspTheme = EditorView.theme({
     maxHeight: "320px",
     overflow: "auto",
   },
-  ".cm-lsp-completion-doc": { whiteSpace: "normal" },
   ".cm-lsp-doc-signature": { marginTop: "0", color: "var(--fg-emphasis)" },
 
   // --- hover / quick documentation / signature / hints ---------------------
