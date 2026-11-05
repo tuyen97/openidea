@@ -10,6 +10,7 @@ mod java_runtime;
 mod kotlin_bridge;
 pub mod notebook;
 pub mod ops;
+mod phpstan;
 pub mod plugins;
 mod project;
 mod proxy;
@@ -86,6 +87,8 @@ pub struct Host {
     project_requests: RwLock<HashMap<String, Vec<RequestId>>>,
     /// Shutdowns of projects closed with [`Host::close_project_detached`].
     closing: parking_lot::Mutex<Vec<std::thread::JoinHandle<()>>>,
+    /// One open at a time per window (see [`Host::opening`]).
+    open_locks: parking_lot::Mutex<HashMap<String, Arc<parking_lot::Mutex<()>>>>,
 }
 
 /// How long exit waits for project shutdown before giving up.
@@ -135,6 +138,7 @@ impl Host {
             requests: Default::default(),
             project_requests: RwLock::default(),
             closing: Default::default(),
+            open_locks: Default::default(),
         };
         host.apply_proxy();
         host
@@ -224,6 +228,9 @@ impl Host {
         }
         if let Some(bridge) = &project.kotlin_bridge {
             bridge.stop();
+        }
+        if let Some(phpstan) = &project.phpstan {
+            phpstan.stop();
         }
         project.documents.clear_workspace_edit_history();
         project.agents.shutdown();
@@ -346,6 +353,9 @@ impl Host {
             if let Some(bridge) = &project.kotlin_bridge {
                 bridge.stop();
             }
+            if let Some(phpstan) = &project.phpstan {
+                phpstan.stop();
+            }
             project.documents.clear_workspace_edit_history();
             project.notebooks.stop_admission();
             project.agents.shutdown();
@@ -399,6 +409,13 @@ impl Host {
     /// Cancels request `id`, also when it has not begun yet (it then starts out cancelled).
     pub fn cancel_request(&self, id: RequestId) {
         self.requests.cancel(id);
+    }
+
+    /// The lock an open of `window` holds from its check for the current project to its
+    /// insert: two opens racing (a double click, a launch path and a restore) would each start
+    /// an index, language servers and watchers, and the second would replace the first unclosed.
+    pub(crate) fn opening(&self, window: &str) -> Arc<parking_lot::Mutex<()>> {
+        self.open_locks.lock().entry(window.to_owned()).or_default().clone()
     }
 
     pub(crate) fn insert_project(&self, window: &str, project: Arc<Project>) {

@@ -440,7 +440,9 @@ pub fn load(root: &Path) -> Option<GradleModel> {
 
 /// Loads exactly this build, without searching its child folders.
 pub fn load_build(root: &Path, dir: &Path) -> Option<GradleModel> {
-    let dir = root.join(dir);
+    // Linked builds are saved with forward slashes; rebuild the path so the launcher
+    // and module folders use the platform's separators.
+    let dir: PathBuf = root.join(dir).components().collect();
     if !SETTINGS_FILES.iter().chain(BUILD_FILES).any(|name| dir.join(name).is_file()) {
         return None;
     }
@@ -479,6 +481,15 @@ pub fn normalize_linked_projects(root: &Path, dirs: &[String]) -> ide_core::IdeR
         }
     }
     Ok(out)
+}
+
+/// The form `normalize_linked_projects` saves `dir` in, also for a folder that no longer
+/// exists, so a path the UI sends (`C:\…` on Windows) matches the saved entry.
+pub fn linked_project_key(root: &Path, dir: &str) -> String {
+    match (dunce::canonicalize(root), dunce::canonicalize(root.join(dir))) {
+        (Ok(root), Ok(path)) => rel(&root, &path),
+        _ => dir.replace('\\', "/"),
+    }
 }
 
 /// Linked build identities without reading their scripts (also used by index hot paths).
@@ -675,6 +686,30 @@ pub(crate) fn has_war_plugin(script: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_path_from_the_ui_finds_the_saved_link() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("workspace");
+        let external = temp.path().join("external");
+        for dir in [root.join("a"), external.clone()] {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("settings.gradle"), "").unwrap();
+        }
+        let native = |p: &std::path::Path| p.to_string_lossy().into_owned();
+        // Saved by linking; unlinking may send a native, absolute or non-canonical spelling.
+        for (dir, sent) in [
+            ("a", native(&root.join("a"))),
+            ("a", "a".to_owned()),
+            ("a", native(&root.join("a").join("..").join("a"))),
+            ("../external", native(&external)),
+        ] {
+            let saved = super::normalize_linked_projects(&root, &[dir.into()]).unwrap();
+            assert_eq!(super::linked_project_key(&root, &sent), saved[0], "{sent}");
+        }
+        // A folder deleted since it was linked still matches its saved entry.
+        assert_eq!(super::linked_project_key(&root, r"gone\build"), "gone/build");
+    }
+
     #[test]
     fn explicit_linkage_preserves_default_discovery_and_can_unlink_every_build() {
         let temp = tempfile::tempdir().unwrap();

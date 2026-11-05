@@ -92,6 +92,7 @@ const UNTRANSLATED = new Set<string>([
   "Prettier",
   "oxfmt",
   "IntelliJ IDEA",
+  "PHPStan",
   // Go environment variables and placeholder values
   "CGO",
   "GOPROXY",
@@ -108,6 +109,7 @@ const UNTRANSLATED = new Set<string>([
   "loopvar,rangefunc",
   // SSH and run-target placeholders
   "SSH",
+  "WSL",
   "example.com",
   "java",
   "node",

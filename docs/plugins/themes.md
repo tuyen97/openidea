@@ -130,14 +130,15 @@ install it from disk.
 Only port themes whose licence allows redistribution, keep their licence file,
 and credit the original authors in `authors` and `description`.
 
-### From IntelliJ IDEA (automatic)
+### From JetBrains IDEs (automatic)
 
-To use a theme you already have in IntelliJ, open **Settings › Plugins**, gear
+To use a theme you already have in a JetBrains IDE, open **Settings › Plugins**, gear
 menu:
 
-- **Import Theme from IntelliJ IDE…** lists the theme plugins installed in the
-  JetBrains IDEs (and Android Studio) on this computer, the theme each IDE uses
-  first. It reads their settings folders: `~/Library/Application Support/JetBrains`
+- **Import Theme from JetBrains IDE…** lists the theme plugins installed in the
+  JetBrains IDEs (and Android Studio) on this computer, one row per plugin of
+  each IDE, the plugins of the themes the IDEs use first. It reads the settings
+  folder of each IDE's newest version: `~/Library/Application Support/JetBrains`
   (macOS), `%APPDATA%\JetBrains` (Windows), `~/.config/JetBrains` and
   `~/.local/share/JetBrains` (Linux).
 - **Import IntelliJ Theme from File…** takes a theme plugin downloaded from the
@@ -146,8 +147,8 @@ menu:
 
 The whole plugin becomes one OpenIDEA theme plugin, `intellij.<plugin id>`, with
 each of its themes and their editor schemes; it is installed through the usual
-install page and the chosen theme (otherwise the first) is applied. Importing
-the plugin again replaces it. Both are actions too (`plugins.importIntellijTheme`,
+install page, and the theme in use stays as it is: choose one of its themes in
+**Settings › Appearance › Theme**. Importing the plugin again replaces it. Both are actions too (`plugins.importIntellijTheme`,
 `plugins.importInstalledIntellijTheme`). The conversion is the one described
 below.
 
@@ -323,7 +324,7 @@ a token.
 
 <!-- BEGIN GENERATED TOKEN REFERENCE: pnpm gen:theme-docs -->
 
-224 themeable tokens: 117 in the UI theme file, 107 in the editor colour scheme file.
+235 themeable tokens: 121 in the UI theme file, 114 in the editor colour scheme file.
 
 ### Surfaces (UI theme)
 
@@ -406,6 +407,10 @@ a token.
 | `--diff-modified` | `#385570` | `#c2d8f2` |
 | `--diff-inserted` | `#294436` | `#bee6be` |
 | `--diff-deleted` | `#484a4a` | `#d6d6d6` |
+| `--diff-modified-stripe` | `#43698d` | `#b6d2f2` |
+| `--diff-inserted-stripe` | `#447152` | `#aadeaa` |
+| `--diff-deleted-stripe` | `#656e76` | `#c8c8c8` |
+| `--diff-conflict-stripe` | `#8f5247` | `#ffc8bd` |
 
 ### Syntax (editor scheme)
 
@@ -429,6 +434,13 @@ a token.
 | `--syn-param` | `#bcbec4` | `#080808` |
 | `--syn-property` | `#c77dbb` | `#871094` |
 | `--syn-constant` | `#c77dbb` | `#871094` |
+| `--syn-python-local-variable` | `var(--syn-variable)` | `var(--syn-variable)` |
+| `--syn-python-global-variable` | `var(--syn-global)` | `var(--syn-global)` |
+| `--syn-python-instance-attribute` | `var(--syn-property)` | `var(--syn-property)` |
+| `--syn-python-class-attribute` | `var(--syn-property)` | `var(--syn-property)` |
+| `--syn-python-constant` | `var(--syn-constant)` | `var(--syn-constant)` |
+| `--syn-python-property` | `var(--syn-property)` | `var(--syn-property)` |
+| `--syn-python-type-parameter` | `var(--syn-type)` | `var(--syn-type)` |
 | `--syn-builtin` | `#8888c6` | `#000080` |
 | `--syn-self` | `#94558d` | `#94558d` |
 | `--syn-keyword-arg` | `#aa4926` | `#660099` |
