@@ -176,10 +176,36 @@ pub fn parse(text: &str) -> HttpFile {
     for (start, title, lines) in blocks(text) {
         let mut name = title;
         let mut i = 0;
-        // Preamble: comments, names, variables, blank lines.
+        // Preamble: comments, names, variables, blank lines, and handlers.
         let mut request = None;
+        // Handlers written before the request line (the placement IDEA documents
+        // for pre-request scripts) belong to the request that follows them.
+        let mut leading_pre = None;
+        let mut leading_response = None;
         while i < lines.len() {
             let line = lines[i];
+            let t = line.trim_start();
+            if let Some((kind, rest)) = inline_handler(t) {
+                let at = start + i as u32;
+                let (source, next) = inline_source(rest, &lines, i);
+                kind.set(
+                    &mut leading_pre,
+                    &mut leading_response,
+                    ScriptBlock { source: ScriptSource::Inline(source), line: at },
+                );
+                i = next;
+                continue;
+            }
+            if let Some((kind, path)) = script_file(t) {
+                let at = start + i as u32;
+                kind.set(
+                    &mut leading_pre,
+                    &mut leading_response,
+                    ScriptBlock { source: ScriptSource::File(path), line: at },
+                );
+                i += 1;
+                continue;
+            }
             if let Some(n) = name_tag(line) {
                 name = Some(n);
             } else if let Some(v) = file_variable(line) {
@@ -225,6 +251,9 @@ pub fn parse(text: &str) -> HttpFile {
         }
         let body_start = i.min(lines.len());
         let (body, pre_script, response_script) = body_parts(&lines[body_start..], start + body_start as u32);
+        // A handler after the request wins over one written before it.
+        let pre_script = pre_script.or(leading_pre);
+        let response_script = response_script.or(leading_response);
         // Trailing blank lines are not part of the block's visible extent.
         let mut last = lines.len();
         while last > req_idx + 1 && lines[last - 1].trim().is_empty() {
@@ -489,6 +518,45 @@ https://example.com/health
             r.response_script,
             Some(ScriptBlock { source: ScriptSource::Inline("client.log(response.status)".into()), line: 7 })
         );
+    }
+
+    #[test]
+    fn pre_request_script_before_the_request_line_is_parsed() {
+        // IDEA documents this placement: the handler comes before the request it
+        // prepares, so the request line is not the first line of the block.
+        let f = parse(
+            "### items\n\
+             < {%\n\
+               request.variables.set(\"id\", 2);\n\
+             %}\n\
+             GET https://example.com/items/{{id}}\n",
+        );
+        let r = &f.requests[0];
+        assert_eq!(r.block.url, "https://example.com/items/{{id}}");
+        assert_eq!(
+            r.pre_script,
+            Some(ScriptBlock { source: ScriptSource::Inline("request.variables.set(\"id\", 2);".into()), line: 1 })
+        );
+        assert!(r.body.is_empty());
+    }
+
+    #[test]
+    fn pre_request_script_file_before_the_request_line_is_parsed() {
+        let f = parse("< ./pre.js\nGET https://example.com/\n");
+        let r = &f.requests[0];
+        assert_eq!(r.pre_script, Some(ScriptBlock { source: ScriptSource::File("./pre.js".into()), line: 0 }));
+        assert!(r.body.is_empty());
+    }
+
+    #[test]
+    fn a_pre_request_script_after_the_request_wins_over_one_before_it() {
+        let f = parse(
+            "< {% client.log(1) %}\n\
+             GET https://example.com/\n\
+             < {% client.log(2) %}\n",
+        );
+        let r = &f.requests[0];
+        assert_eq!(r.pre_script, Some(ScriptBlock { source: ScriptSource::Inline("client.log(2)".into()), line: 2 }));
     }
 
     #[test]
