@@ -108,6 +108,17 @@ describe("http highlighting", () => {
     expect(has("comment", "// note")).toBe(true);
   });
 
+  it("tags JavaScript inside a handler before the request line", () => {
+    const t = tokens('< {%\n  const token = request.variables.get("token");\n%}\nGET https://x\n');
+    const has = (name: string, text: string) => t.some(([n, s]) => n.includes(name) && s === text);
+    expect(has("meta", "< {%")).toBe(true);
+    expect(has("keyword", "const")).toBe(true);
+    expect(has("typeName", "request")).toBe(true);
+    expect(has("propertyName", "variables")).toBe(true);
+    expect(has("string", '"token"')).toBe(true);
+    expect(has("keyword", "GET")).toBe(true);
+  });
+
   it("indents JavaScript inside handlers", () => {
     const doc = "GET https://x\n\n> {%\nif (x) {\nclient.log(1);\n}\n%}";
     const state = EditorState.create({
@@ -136,6 +147,12 @@ describe("http suggestions", () => {
     const found = labels("@host = example.com\nGET https://x/{{ho");
     expect(found).toContain("host");
     expect(found).toContain("$timestamp");
+  });
+
+  it("offers the handler API in a script before the request line", () => {
+    const doc = "< {%\n  client.\n%}\nGET https://x\n";
+    const pos = doc.indexOf("client.") + "client.".length;
+    expect(labels(doc, pos)).toEqual(["global", "log"]);
   });
 
   it("offers the handler API inside a script", () => {

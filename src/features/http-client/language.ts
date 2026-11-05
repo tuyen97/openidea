@@ -81,6 +81,17 @@ export const httpParser: StreamParser<State> = {
           state.part = "rest";
           return "variableName.definition";
         }
+        // A handler may come before the request line (IDEA's pre-request
+        // placement), so the script starts while the block is still a preamble.
+        if (stream.match(/^\s*[<>]\s*\{%/)) {
+          state.handler = true;
+          state.handlerDot = false;
+          return "meta";
+        }
+        if (stream.match(/^\s*(<>|>>|>|<)\s/)) {
+          stream.skipToEnd();
+          return "meta";
+        }
         const method = stream.match(new RegExp(`^(${METHODS.join("|")})(?=\\s)`));
         if (method) {
           state.part = "url";
