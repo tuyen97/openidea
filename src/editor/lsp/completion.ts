@@ -752,9 +752,12 @@ const completionFooter = ViewPlugin.fromClass(
           for (const t of tooltips) {
             // Contributed options (language-data sources such as HTTP headers and
             // templates) carry short docs as strings; show them above the footer
-            // so they do not depend on the side info panel's available space.
+            // so they do not depend on the side info panel's available space. The
+            // side panel is hidden for them (see `cm-lsp-inline-doc`): the same
+            // text twice covers the list.
             const completion = selectedCompletion(this.view.state);
             const info = completion && typeof completion.info === "string" ? completion.info : null;
+            t.classList.toggle("cm-lsp-inline-doc", !!info);
             let doc = t.querySelector<HTMLElement>(":scope > .cm-lsp-completion-doc");
             if (info) {
               if (!doc) {

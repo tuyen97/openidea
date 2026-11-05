@@ -191,6 +191,9 @@ export const lspTheme = EditorView.theme({
   },
   ".cm-lsp-completion-sort:hover": { color: "var(--fg)" },
   '.cm-lsp-completion-sort[aria-pressed="true"]': { color: "var(--link)" },
+  // A contributed option's doc is drawn inside the popup (`.cm-lsp-completion-doc`);
+  // CodeMirror's side panel would show the same string again, over the list.
+  ".cm-lsp-completion.cm-lsp-inline-doc > .cm-completionInfo": { display: "none" },
   ".cm-tooltip.cm-completionInfo": {
     ...tooltipSurface,
     padding: "8px 12px",
