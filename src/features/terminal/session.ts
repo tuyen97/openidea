@@ -14,7 +14,7 @@ import { fitScheduler, settledResize } from "./fit";
 import { installTerminalDrop } from "./drop";
 import { installTerminalPaste, pasteTerminalClipboard } from "./paste";
 import { ImeCommitGate } from "./imeCommit";
-import { ownTerminalInput } from "./imeInput";
+import { ownTerminalInput, type TerminalInput } from "./imeInput";
 import { findTerminalLinks, resolvePath, type TerminalLink } from "./links";
 import { splitCommandLine } from "@/platform/commandLine";
 import { useProject } from "@/platform/project";
@@ -195,6 +195,8 @@ export class TerminalSession {
   private readonly ime = new ImeCommitGate(() => {
     if (this.term.textarea) this.term.textarea.value = "";
   });
+  /** macOS input methods report no composition; see `ownTerminalInput`. */
+  private macIme: TerminalInput | null = null;
 
   constructor(opts: SessionOptions) {
     this.opts = opts;
@@ -421,12 +423,16 @@ export class TerminalSession {
   private watchImeCommit() {
     const textarea = this.term.textarea;
     if (!textarea) return;
-    // WKWebView: xterm drops commits IMEs without composition events inject (Doubao) and
-    // misses text that lands after its textarea snapshot. Deliver those here.
+    // WKWebView: the system input methods (Vietnamese Telex, Korean) report no
+    // composition — every correction arrives as `insertReplacementText`, which xterm
+    // ignores. Mirror the textarea and forward what changed; see `ownTerminalInput`.
     if (usePlatform.getState().os === "macos") {
-      this.disposables.push({
-        dispose: ownTerminalInput({ host: this.host, textarea, send: (data) => this.send(data) }),
+      this.macIme = ownTerminalInput({
+        host: this.host,
+        textarea,
+        send: (data) => this.input(data),
       });
+      this.disposables.push(this.macIme);
       return;
     }
     // WebKitGTK (Linux) and WebView2 keep the fcitx5 deduplication gate.
@@ -458,6 +464,10 @@ export class TerminalSession {
 
   /** xterm's data event, with one IME commit's repeated emissions collapsed. */
   private fromTerminal(data: string) {
+    if (this.macIme) {
+      this.macIme.fromTerminal(data);
+      return;
+    }
     if (this.ime.accept()) this.input(data);
   }
 
@@ -604,11 +614,14 @@ export class TerminalSession {
   /** Writes input immediately (shortcuts translated outside xterm). */
   send(data: string) {
     this.term.scrollToBottom();
+    // The shortcut moves the caret outside xterm's textarea mirror.
+    this.macIme?.reset();
     this.input(data);
   }
 
   paste(text: string) {
     if (this.disposed) return;
+    this.macIme?.reset();
     this.term.paste(text);
   }
 

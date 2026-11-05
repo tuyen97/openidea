@@ -11,8 +11,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { EmbeddedTerminal, EmbeddedTerminalOptions } from "@/workbench/contributions";
 import { isImeKey } from "@/platform/ime";
+import { ownTerminalInput, type TerminalInput } from "./imeInput";
 import { terminalKeyAction } from "./keys";
 import { useProject } from "@/platform/project";
+import { usePlatform } from "@/platform/platformInfo";
 import { workflowSettings } from "@/platform/workflowSettings";
 import { fitScheduler, settledResize } from "./fit";
 import { findTerminalLinks } from "./links";
@@ -61,8 +63,10 @@ export function createEmbeddedTerminal(host: HTMLElement, opts: EmbeddedTerminal
   term.loadAddon(fit);
   live.add(term);
   const processResize = settledResize((cols, rows) => opts.onResize(cols, rows));
+  /** macOS input methods report no composition; see `ownTerminalInput`. */
+  let ime: TerminalInput | null = null;
   const disposables: IDisposable[] = [
-    term.onData((d) => opts.onData(d)),
+    term.onData((d) => (ime ? ime.fromTerminal(d) : opts.onData(d))),
     term.onBinary((d) => opts.onData(d)),
     term.onResize(({ cols, rows }) => processResize.resized(cols, rows)),
     term.registerLinkProvider({
@@ -85,9 +89,19 @@ export function createEmbeddedTerminal(host: HTMLElement, opts: EmbeddedTerminal
       },
     }),
   ];
-  const removePaste = installTerminalPaste(host, (text) => term.paste(text));
-  const removeDrop = installTerminalDrop(host, (text) => term.paste(text));
+  const removePaste = installTerminalPaste(host, (text) => {
+    ime?.reset();
+    term.paste(text);
+  });
+  const removeDrop = installTerminalDrop(host, (text) => {
+    ime?.reset();
+    term.paste(text);
+  });
   term.open(host);
+  if (usePlatform.getState().os === "macos" && term.textarea) {
+    ime = ownTerminalInput({ host, textarea: term.textarea, send: (d) => opts.onData(d) });
+    disposables.push(ime);
+  }
   if (opts["aria-label"]) term.textarea?.setAttribute("aria-label", opts["aria-label"]);
 
   const fitter = fitScheduler(() => {
